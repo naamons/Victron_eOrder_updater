@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
-from shopify_admin import ShopifyAdmin
+import shopify
+import pandas as pd
 
 def fetch_eorder_prices(api_url):
     """
@@ -17,7 +18,7 @@ def fetch_eorder_prices(api_url):
         st.error(f"An error occurred while fetching eOrder prices: {e}")
         return None
 
-def get_shopify_products(shopify_admin, page_size=250):
+def get_shopify_products(page_size=250):
     """
     Fetch Shopify products with pagination
     """
@@ -26,17 +27,26 @@ def get_shopify_products(shopify_admin, page_size=250):
     
     while True:
         try:
-            products = shopify_admin.get_products(
-                params={
-                    'limit': page_size,
-                    'page': page
-                }
-            )
+            products = shopify.Product.find(limit=page_size, page=page)
             
             if not products:
                 break
             
-            all_products.extend(products)
+            # Convert products to dictionary for easier processing
+            product_dicts = [
+                {
+                    'id': product.id,
+                    'variants': [
+                        {
+                            'id': variant.id, 
+                            'sku': variant.sku, 
+                            'price': variant.price
+                        } for variant in product.variants
+                    ]
+                } for product in products
+            ]
+            
+            all_products.extend(product_dicts)
             page += 1
         
         except Exception as e:
@@ -86,11 +96,13 @@ def main():
         st.error(f"Missing secret: {e}. Please configure Streamlit secrets.")
         return
 
-    # Initialize Shopify Admin
-    shopify_admin = ShopifyAdmin(
-        shop_url=shopify_shop,
-        access_token=shopify_access_token
-    )
+    # Initialize Shopify Session
+    try:
+        session = shopify.Session(shopify_shop, '2023-04', shopify_access_token)
+        shopify.ShopifyResource.activate_session(session)
+    except Exception as e:
+        st.error(f"Failed to initialize Shopify session: {e}")
+        return
 
     # Fetch eOrder Prices
     st.write("Fetching prices from eOrder API...")
@@ -102,7 +114,7 @@ def main():
 
     # Fetch Shopify Products
     st.write("Fetching Shopify products...")
-    shopify_products = get_shopify_products(shopify_admin)
+    shopify_products = get_shopify_products()
     
     if not shopify_products:
         st.error("Could not fetch Shopify products.")
@@ -125,6 +137,9 @@ def main():
         for update in price_updates:
             st.write(f"Would update SKU {update['sku']}: "
                      f"${update['current_price']} → ${update['new_price']}")
+
+    # Close Shopify session
+    shopify.ShopifyResource.clear_session()
 
 if __name__ == "__main__":
     main()
