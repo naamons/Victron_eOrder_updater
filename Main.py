@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import shopify
 import pandas as pd
 
 def fetch_eorder_prices(api_url):
@@ -12,42 +11,43 @@ def fetch_eorder_prices(api_url):
         if response.status_code == 200:
             return response.json()
         else:
-            st.error(f"Failed to fetch data. HTTP Status Code: {response.status_code}")
+            st.error(f"Failed to fetch data from eOrder. HTTP Status Code: {response.status_code}")
             return None
     except Exception as e:
         st.error(f"An error occurred while fetching eOrder prices: {e}")
         return None
 
-def get_shopify_products(page_size=250):
+def get_shopify_products(shop_url, access_token):
     """
-    Fetch Shopify products with pagination
+    Fetch Shopify products using Admin API with pagination
     """
     all_products = []
-    page = 1
+    next_page_url = f"https://{shop_url}/admin/api/2024-01/products.json?limit=250"
     
-    while True:
+    while next_page_url:
         try:
-            products = shopify.Product.find(limit=page_size, page=page)
+            response = requests.get(
+                next_page_url,
+                headers={
+                    'X-Shopify-Access-Token': access_token,
+                    'Content-Type': 'application/json'
+                }
+            )
             
-            if not products:
+            if response.status_code != 200:
+                st.error(f"Failed to fetch products. Status: {response.status_code}")
                 break
             
-            # Convert products to dictionary for easier processing
-            product_dicts = [
-                {
-                    'id': product.id,
-                    'variants': [
-                        {
-                            'id': variant.id, 
-                            'sku': variant.sku, 
-                            'price': variant.price
-                        } for variant in product.variants
-                    ]
-                } for product in products
-            ]
+            data = response.json()
+            all_products.extend(data['products'])
             
-            all_products.extend(product_dicts)
-            page += 1
+            # Check for pagination link in headers
+            next_page_url = None
+            if 'Link' in response.headers:
+                links = response.headers['Link'].split(', ')
+                for link in links:
+                    if 'rel="next"' in link:
+                        next_page_url = link.split(';')[0].strip('<>')
         
         except Exception as e:
             st.error(f"Error fetching Shopify products: {e}")
@@ -62,7 +62,7 @@ def compare_prices(eorder_prices, shopify_products):
     price_updates = []
     
     # Create a dictionary of eOrder prices for quick lookup
-    eorder_price_map = {item['sku']: item['price'] for item in eorder_prices}
+    eorder_price_map = {item['sku']: float(item['price']) for item in eorder_prices}
     
     for product in shopify_products:
         for variant in product['variants']:
@@ -70,12 +70,14 @@ def compare_prices(eorder_prices, shopify_products):
             
             if sku in eorder_price_map:
                 current_price = float(variant['price'])
-                new_price = float(eorder_price_map[sku])
+                new_price = eorder_price_map[sku]
                 
                 if abs(current_price - new_price) > 0.01:  # Allow small floating-point differences
                     price_updates.append({
                         'product_id': product['id'],
                         'variant_id': variant['id'],
+                        'product_title': product['title'],
+                        'variant_title': variant['title'],
                         'current_price': current_price,
                         'new_price': new_price,
                         'sku': sku
@@ -96,14 +98,6 @@ def main():
         st.error(f"Missing secret: {e}. Please configure Streamlit secrets.")
         return
 
-    # Initialize Shopify Session
-    try:
-        session = shopify.Session(shopify_shop, '2023-04', shopify_access_token)
-        shopify.ShopifyResource.activate_session(session)
-    except Exception as e:
-        st.error(f"Failed to initialize Shopify session: {e}")
-        return
-
     # Fetch eOrder Prices
     st.write("Fetching prices from eOrder API...")
     eorder_prices = fetch_eorder_prices(eorder_api_url)
@@ -114,7 +108,7 @@ def main():
 
     # Fetch Shopify Products
     st.write("Fetching Shopify products...")
-    shopify_products = get_shopify_products()
+    shopify_products = get_shopify_products(shopify_shop, shopify_access_token)
     
     if not shopify_products:
         st.error("Could not fetch Shopify products.")
@@ -136,10 +130,8 @@ def main():
     if st.button("Simulate Price Update"):
         for update in price_updates:
             st.write(f"Would update SKU {update['sku']}: "
-                     f"${update['current_price']} → ${update['new_price']}")
-
-    # Close Shopify session
-    shopify.ShopifyResource.clear_session()
+                     f"${update['current_price']} → ${update['new_price']} "
+                     f"for product: {update['product_title']} - {update['variant_title']}")
 
 if __name__ == "__main__":
     main()
