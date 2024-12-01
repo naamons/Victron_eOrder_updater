@@ -7,8 +7,8 @@ def main():
     st.title("Victron Energy SKU Prices Viewer")
     st.write("This app fetches and displays product SKUs and their prices from the Victron Energy API.")
 
-    # Define the API endpoint
-    api_url = "https://eorder.victronenergy.com/api/v1/pricelist/map/us/"
+    # Define the API endpoint with the correct format
+    api_url = "https://eorder.victronenergy.com/api/v1/pricelist/map/us/?format=json"
 
     try:
         st.write("Fetching data from the API...")
@@ -16,9 +16,7 @@ def main():
 
         # Debugging: Display the raw response content for troubleshooting
         st.write("API Response Status Code:", response.status_code)
-        st.write("API Response Content:")
-        st.text(response.text)  # Display raw text of the response for debugging
-        
+
         # Check if the request was successful
         if response.status_code == 200:
             try:
@@ -26,7 +24,7 @@ def main():
                 data = response.json()
                 st.success("Data fetched successfully!")
 
-                # Display the data
+                # Display the data in a table
                 if data:
                     st.write("Here is the list of SKUs and prices:")
                     for product in data:
