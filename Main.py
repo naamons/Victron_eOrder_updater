@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import time
 
 def fetch_eorder_prices(api_url):
     """
@@ -22,7 +23,8 @@ def get_shopify_products(shop_url, access_token):
     Fetch Shopify products using Admin API with pagination
     """
     all_products = []
-    next_page_url = f"https://{shop_url}/admin/api/2024-01/products.json?limit=250"
+    # Use the correct API version
+    next_page_url = f"https://{shop_url}/admin/api/2023-04/products.json?limit=250"
     
     while next_page_url:
         try:
@@ -89,15 +91,16 @@ def update_shopify_price(shop_url, access_token, variant_id, new_price):
     """
     Update the price of a Shopify product variant
     """
-    update_url = f"https://{shop_url}/admin/api/2024-01/variants/{variant_id}.json"
+    # Use the correct API version
+    update_url = f"https://{shop_url}/admin/api/2023-04/variants/{variant_id}.json"
     headers = {
         'X-Shopify-Access-Token': access_token,
         'Content-Type': 'application/json'
     }
     payload = {
         "variant": {
-            # Removed 'id' from payload
-            "price": f"{new_price:.2f}"
+            "id": variant_id,  # Include 'id' in the payload
+            "price": f"{new_price:.2f}"  # Ensure price is a string with two decimal places
         }
     }
     
@@ -158,7 +161,10 @@ def main():
         if st.button("Push Price Updates to Shopify"):
             st.write("Starting price update process...")
             update_results = []
-            for update in price_updates:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for index, update in enumerate(price_updates):
                 success, result = update_shopify_price(
                     shop_url=shopify_shop,
                     access_token=shopify_access_token,
@@ -183,9 +189,15 @@ def main():
                         'New Price': update['new_price'],
                         'Status': f'Failed: {result}'
                     })
+                
+                # Update progress
+                progress_bar.progress((index + 1) / len(price_updates))
+                status_text.text(f"Processed {index + 1} of {len(price_updates)} variants.")
+                time.sleep(0.1)  # Small delay to make updates visible
             
             # Display Update Results
             results_df = pd.DataFrame(update_results)
+            st.write("## Update Results")
             st.dataframe(results_df)
             success_count = results_df[results_df['Status'] == 'Success'].shape[0]
             failure_count = results_df[results_df['Status'].str.startswith('Failed')].shape[0]
