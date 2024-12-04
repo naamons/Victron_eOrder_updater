@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import time
 
 def fetch_eorder_prices(api_url):
     """
@@ -85,6 +86,35 @@ def compare_prices(eorder_prices, shopify_products):
     
     return price_updates
 
+def update_shopify_price(shop_url, access_token, variant_id, new_price):
+    """
+    Update the price of a Shopify product variant using the Admin API
+    """
+    update_url = f"https://{shop_url}/admin/api/2024-01/variants/{variant_id}.json"
+    payload = {
+        "variant": {
+            "id": variant_id,
+            "price": f"{new_price:.2f}"
+        }
+    }
+    
+    try:
+        response = requests.put(
+            update_url,
+            headers={
+                'X-Shopify-Access-Token': access_token,
+                'Content-Type': 'application/json'
+            },
+            json=payload
+        )
+        
+        if response.status_code == 200:
+            return True, response.json()
+        else:
+            return False, response.text
+    except Exception as e:
+        return False, str(e)
+
 def main():
     st.title("Victron Energy Price Synchronization")
     st.write("Compare and synchronize prices between eOrder API and Shopify Storefront")
@@ -125,8 +155,57 @@ def main():
         st.write(f"Total products that would be updated: {len(price_updates)}")
     else:
         st.success("No price updates needed!")
+        return  # Exit if no updates are necessary
 
-    # Dry Run Update Button (for demonstration)
+    st.header("Push Updates to Shopify")
+    st.write("Click the button below to push the above price updates to your Shopify store.")
+
+    if st.button("Push Price Updates"):
+        if not price_updates:
+            st.info("There are no price updates to push.")
+            return
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        success_updates = []
+        failed_updates = []
+
+        total_updates = len(price_updates)
+        for idx, update in enumerate(price_updates, start=1):
+            status_text.text(f"Updating {idx}/{total_updates}: SKU {update['sku']}")
+
+            success, response = update_shopify_price(
+                shop_url=shopify_shop,
+                access_token=shopify_access_token,
+                variant_id=update['variant_id'],
+                new_price=update['new_price']
+            )
+
+            if success:
+                success_updates.append(update)
+            else:
+                failed_updates.append({
+                    'sku': update['sku'],
+                    'error': response
+                })
+
+            progress_bar.progress(idx / total_updates)
+            time.sleep(0.1)  # Optional: To simulate progress
+
+        status_text.text("Price updates completed.")
+
+        if success_updates:
+            st.success(f"Successfully updated {len(success_updates)} variants.")
+        if failed_updates:
+            st.error(f"Failed to update {len(failed_updates)} variants.")
+            failed_df = pd.DataFrame(failed_updates)
+            st.dataframe(failed_df)
+
+        progress_bar.empty()
+        status_text.empty()
+
+    # Optional: Simulate Update for Dry Run
+    st.header("Simulate Price Update")
     if st.button("Simulate Price Update"):
         for update in price_updates:
             st.write(f"Would update SKU {update['sku']}: "
