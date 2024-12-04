@@ -15,7 +15,10 @@ def fetch_eorder_prices(api_url):
             return response.json()
         else:
             st.error(f"Failed to fetch data from eOrder. HTTP Status Code: {response.status_code}")
-            st.json(response.json())  # Display error details
+            try:
+                st.json(response.json())  # Display error details
+            except:
+                st.write(response.text)
             return None
     except Exception as e:
         st.error(f"An error occurred while fetching eOrder prices: {e}")
@@ -40,7 +43,10 @@ def get_shopify_products(shop_url, access_token, api_version="2024-01"):
             
             if response.status_code != 200:
                 st.error(f"Failed to fetch products. Status: {response.status_code}")
-                st.json(response.json())  # Display error details
+                try:
+                    st.json(response.json())  # Display error details
+                except:
+                    st.write(response.text)
                 break
             
             data = response.json()
@@ -76,7 +82,9 @@ def compare_prices(eorder_prices, shopify_products):
             if sku in eorder_price_map:
                 current_price = float(variant['price'])
                 new_price = eorder_price_map[sku]
-                option1 = variant.get('option1', '')  # Fetch option1
+                option1 = variant.get('option1', '')
+                option2 = variant.get('option2', '')
+                option3 = variant.get('option3', '')
                 
                 if abs(current_price - new_price) > 0.01:  # Allow small floating-point differences
                     price_updates.append({
@@ -87,21 +95,25 @@ def compare_prices(eorder_prices, shopify_products):
                         'current_price': current_price,
                         'new_price': new_price,
                         'sku': sku,
-                        'option1': option1  # Include option1 in updates
+                        'option1': option1,
+                        'option2': option2,
+                        'option3': option3
                     })
     
     return price_updates
 
-def update_shopify_price(shop_url, access_token, variant_id, new_price, option1, api_version="2024-01"):
+def update_shopify_price(shop_url, access_token, variant_id, new_price, option1, option2, option3, api_version="2024-01"):
     """
-    Update the price and option1 of a Shopify product variant using the Admin API
+    Update the price and options of a Shopify product variant using the Admin API
     """
     update_url = f"https://{shop_url}/admin/api/{api_version}/variants/{variant_id}.json"
     payload = {
         "variant": {
             "id": variant_id,
             "price": f"{new_price:.2f}",
-            "option1": option1  # Ensure option1 is included
+            "option1": option1,
+            "option2": option2,
+            "option3": option3
         }
     }
 
@@ -123,7 +135,10 @@ def update_shopify_price(shop_url, access_token, variant_id, new_price, option1,
         else:
             # Log the full response for debugging
             st.error(f"Failed to update Variant ID {variant_id}. Status: {response.status_code}")
-            st.json(response.json())  # Display the error message
+            try:
+                st.json(response.json())  # Display the error message
+            except:
+                st.write(response.text)
             return False, response.json()
     except Exception as e:
         st.error(f"Exception occurred while updating Variant ID {variant_id}: {e}")
@@ -196,7 +211,9 @@ def main():
                 access_token=shopify_access_token,
                 variant_id=update['variant_id'],
                 new_price=update['new_price'],
-                option1=update['option1']
+                option1=update['option1'],
+                option2=update['option2'],
+                option3=update['option3']
             )
 
             if success:
@@ -208,7 +225,8 @@ def main():
                     'error': response
                 })
                 # Append to error log
-                error_log.append(f"SKU: {update['sku']}, Variant ID: {update['variant_id']}, Error: {response}")
+                error_details = f"SKU: {update['sku']}, Variant ID: {update['variant_id']}, Error: {response}"
+                error_log.append(error_details)
 
             progress_bar.progress(idx / total_updates)
             time.sleep(0.1)  # Optional: To simulate progress
@@ -241,6 +259,7 @@ def main():
             st.write(f"Would update SKU {update['sku']}: "
                      f"${update['current_price']} → ${update['new_price']} "
                      f"for product: {update['product_title']} - {update['variant_title']}")
+
 
 if __name__ == "__main__":
     main()
