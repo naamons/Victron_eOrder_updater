@@ -2,6 +2,8 @@ import streamlit as st
 import requests
 import pandas as pd
 import time
+import base64
+from io import StringIO
 
 def fetch_eorder_prices(api_url):
     """
@@ -13,17 +15,18 @@ def fetch_eorder_prices(api_url):
             return response.json()
         else:
             st.error(f"Failed to fetch data from eOrder. HTTP Status Code: {response.status_code}")
+            st.json(response.json())  # Display error details
             return None
     except Exception as e:
         st.error(f"An error occurred while fetching eOrder prices: {e}")
         return None
 
-def get_shopify_products(shop_url, access_token):
+def get_shopify_products(shop_url, access_token, api_version="2024-01"):
     """
     Fetch Shopify products using Admin API with pagination
     """
     all_products = []
-    next_page_url = f"https://{shop_url}/admin/api/2024-01/products.json?limit=250"
+    next_page_url = f"https://{shop_url}/admin/api/{api_version}/products.json?limit=250"
     
     while next_page_url:
         try:
@@ -37,6 +40,7 @@ def get_shopify_products(shop_url, access_token):
             
             if response.status_code != 200:
                 st.error(f"Failed to fetch products. Status: {response.status_code}")
+                st.json(response.json())  # Display error details
                 break
             
             data = response.json()
@@ -72,6 +76,7 @@ def compare_prices(eorder_prices, shopify_products):
             if sku in eorder_price_map:
                 current_price = float(variant['price'])
                 new_price = eorder_price_map[sku]
+                option1 = variant.get('option1', '')  # Fetch option1
                 
                 if abs(current_price - new_price) > 0.01:  # Allow small floating-point differences
                     price_updates.append({
@@ -81,38 +86,47 @@ def compare_prices(eorder_prices, shopify_products):
                         'variant_title': variant['title'],
                         'current_price': current_price,
                         'new_price': new_price,
-                        'sku': sku
+                        'sku': sku,
+                        'option1': option1  # Include option1 in updates
                     })
     
     return price_updates
 
-def update_shopify_price(shop_url, access_token, variant_id, new_price):
+def update_shopify_price(shop_url, access_token, variant_id, new_price, option1, api_version="2024-01"):
     """
-    Update the price of a Shopify product variant using the Admin API
+    Update the price and option1 of a Shopify product variant using the Admin API
     """
-    update_url = f"https://{shop_url}/admin/api/2024-01/variants/{variant_id}.json"
+    update_url = f"https://{shop_url}/admin/api/{api_version}/variants/{variant_id}.json"
     payload = {
         "variant": {
             "id": variant_id,
-            "price": f"{new_price:.2f}"
+            "price": f"{new_price:.2f}",
+            "option1": option1  # Ensure option1 is included
         }
     }
-    
+
+    headers = {
+        'X-Shopify-Access-Token': access_token,
+        'Content-Type': 'application/json'
+    }
+
     try:
         response = requests.put(
             update_url,
-            headers={
-                'X-Shopify-Access-Token': access_token,
-                'Content-Type': 'application/json'
-            },
+            headers=headers,
             json=payload
         )
         
         if response.status_code == 200:
+            st.success(f"Successfully updated Variant ID: {variant_id}")
             return True, response.json()
         else:
-            return False, response.text
+            # Log the full response for debugging
+            st.error(f"Failed to update Variant ID {variant_id}. Status: {response.status_code}")
+            st.json(response.json())  # Display the error message
+            return False, response.json()
     except Exception as e:
+        st.error(f"Exception occurred while updating Variant ID {variant_id}: {e}")
         return False, str(e)
 
 def main():
@@ -157,6 +171,9 @@ def main():
         st.success("No price updates needed!")
         return  # Exit if no updates are necessary
 
+    # Initialize error log
+    error_log = []
+
     st.header("Push Updates to Shopify")
     st.write("Click the button below to push the above price updates to your Shopify store.")
 
@@ -178,7 +195,8 @@ def main():
                 shop_url=shopify_shop,
                 access_token=shopify_access_token,
                 variant_id=update['variant_id'],
-                new_price=update['new_price']
+                new_price=update['new_price'],
+                option1=update['option1']
             )
 
             if success:
@@ -186,8 +204,11 @@ def main():
             else:
                 failed_updates.append({
                     'sku': update['sku'],
+                    'variant_id': update['variant_id'],
                     'error': response
                 })
+                # Append to error log
+                error_log.append(f"SKU: {update['sku']}, Variant ID: {update['variant_id']}, Error: {response}")
 
             progress_bar.progress(idx / total_updates)
             time.sleep(0.1)  # Optional: To simulate progress
@@ -200,6 +221,15 @@ def main():
             st.error(f"Failed to update {len(failed_updates)} variants.")
             failed_df = pd.DataFrame(failed_updates)
             st.dataframe(failed_df)
+
+            # Prepare error.txt content
+            error_content = "\n".join(error_log)
+            st.download_button(
+                label="Download Error Log",
+                data=error_content,
+                file_name='error.txt',
+                mime='text/plain'
+            )
 
         progress_bar.empty()
         status_text.empty()
