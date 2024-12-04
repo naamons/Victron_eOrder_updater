@@ -99,8 +99,7 @@ def update_shopify_price(shop_url, access_token, variant_id, new_price):
     }
     payload = {
         "variant": {
-            "id": variant_id,  # Include 'id' in the payload
-            "price": f"{new_price:.2f}"  # Ensure price is a string with two decimal places
+            "price": f"{new_price:.2f}"  # Remove the 'id' from the payload
         }
     }
     
