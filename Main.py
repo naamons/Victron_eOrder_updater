@@ -96,7 +96,7 @@ def update_shopify_price(shop_url, access_token, variant_id, new_price):
     }
     payload = {
         "variant": {
-            "id": variant_id,
+            # Removed 'id' from payload
             "price": f"{new_price:.2f}"
         }
     }
@@ -121,6 +121,11 @@ def main():
         eorder_api_url = st.secrets["EORDER_API_URL"]
     except KeyError as e:
         st.error(f"Missing secret: {e}. Please configure Streamlit secrets.")
+        return
+    
+    # Validate `shopify_shop` format
+    if shopify_shop.startswith("https://") or shopify_shop.startswith("http://"):
+        st.error("SHOPIFY_SHOP should not include the protocol (e.g., use 'your-store.myshopify.com')")
         return
     
     # Fetch eOrder Prices
