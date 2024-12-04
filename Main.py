@@ -128,7 +128,7 @@ def get_shopify_products(shop_url, access_token):
                     if 'rel="next"' in link:
                         next_page_url = link.split(';')[0].strip('<>')
                         break  # Only one next page link is expected
-            
+        
         except Exception as e:
             st.error(f"Error fetching Shopify products: {e}")
             break
@@ -152,8 +152,27 @@ def compare_prices(eorder_prices, shopify_products):
     eorder_price_map = {item['sku']: float(item['price']) for item in eorder_prices}
     
     for product in shopify_products:
-        for variant in product.get('variants', []):
+        product_id = product.get('id', 'N/A')
+        product_title = product.get('title', 'N/A')
+        variants = product.get('variants', [])
+        
+        if not isinstance(variants, list):
+            st.warning(f"Variants for product ID {product_id} - '{product_title}' are not in a list format.")
+            continue
+        
+        for variant in variants:
+            if variant is None:
+                st.warning(f"Found a None variant in product ID {product_id} - '{product_title}'. Skipping this variant.")
+                continue
+            if not isinstance(variant, dict):
+                st.warning(f"Found a non-dict variant in product ID {product_id} - '{product_title}'. Skipping this variant.")
+                continue
+            
             sku = variant.get('sku', '').strip()
+            
+            if not sku:
+                st.warning(f"Variant in product ID {product_id} - '{product_title}' is missing an SKU. Skipping this variant.")
+                continue
             
             if sku in eorder_price_map:
                 try:
@@ -162,16 +181,16 @@ def compare_prices(eorder_prices, shopify_products):
                     
                     if abs(current_price - new_price) > 0.01:  # Allow small floating-point differences
                         price_updates.append({
-                            'product_id': product['id'],
+                            'product_id': product_id,
                             'variant_id': variant['id'],
-                            'product_title': product.get('title', 'N/A'),
+                            'product_title': product_title,
                             'variant_title': variant.get('title', 'N/A'),
                             'current_price': current_price,
                             'new_price': new_price,
                             'sku': sku
                         })
                 except ValueError:
-                    st.warning(f"Invalid price format for SKU: {sku}")
+                    st.warning(f"Invalid price format for SKU: {sku} in product ID {product_id} - '{product_title}'. Skipping this variant.")
     
     return price_updates
 
