@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import pandas as pd
 import time
-import base64
 from io import StringIO
 
 def fetch_eorder_prices(api_url):
@@ -91,106 +90,31 @@ def compare_prices(eorder_prices, shopify_products):
                     })
     return price_updates
 
-def update_shopify_price(shop_url, access_token, product_id, variant_id, new_price, option1, option2, option3, api_version="2024-01"):
+def update_shopify_price(shop_url, access_token, variant_id, new_price, api_version="2024-01"):
     """
-    Update variant price using GraphQL productSet mutation.
-    You must have a valid GraphQL mutation available. The query below assumes the productSet mutation
-    works as in the provided example. Adjust as necessary if using a different mutation.
+    Update variant price using Shopify Admin REST API.
     """
-
-    # Convert numeric IDs from REST to GID format required by GraphQL
-    product_gid = f"gid://shopify/Product/{product_id}"
-    variant_gid = f"gid://shopify/ProductVariant/{variant_id}"
-
-    graphql_endpoint = f"https://{shop_url}/admin/api/{api_version}/graphql.json"
+    update_endpoint = f"https://{shop_url}/admin/api/{api_version}/variants/{variant_id}.json"
     headers = {
         'X-Shopify-Access-Token': access_token,
         'Content-Type': 'application/json'
     }
-
-    # Construct GraphQL mutation
-    # This mutation updates a product and its variants' prices.
-    # According to the given example:
-    # mutation UpdateProductVariantPrice {
-    #   productSet(synchronous: true, input: {
-    #     id: "gid://shopify/Product/...", 
-    #     variants: [
-    #       {
-    #         id: "gid://shopify/ProductVariant/...", 
-    #         price: 94.99
-    #       }
-    #     ]
-    #   }) {
-    #     product {
-    #       id
-    #       title
-    #       variants(first: 5) {
-    #         nodes {
-    #           id
-    #           price
-    #         }
-    #       }
-    #     }
-    #     userErrors {
-    #       field
-    #       message
-    #     }
-    #   }
-    # }
-
-    query = """
-    mutation UpdateProductVariantPrice($input: ProductSetInput!) {
-      productSet(synchronous: true, input: $input) {
-        product {
-          id
-          title
-          variants(first: 5) {
-            nodes {
-              id
-              price
-            }
-          }
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-    """
-
-    variables = {
-        "input": {
-            "id": product_gid,
-            "variants": [
-                {
-                    "id": variant_gid,
-                    "price": float(f"{new_price:.2f}")
-                }
-            ]
+    payload = {
+        "variant": {
+            "id": variant_id,
+            "price": f"{new_price:.2f}"
         }
     }
 
     try:
-        response = requests.post(
-            graphql_endpoint,
+        response = requests.put(
+            update_endpoint,
             headers=headers,
-            json={"query": query, "variables": variables}
+            json=payload
         )
         if response.status_code == 200:
-            response_data = response.json()
-            if 'errors' in response_data:
-                # GraphQL-level errors
-                st.error(f"GraphQL errors occurred while updating Variant ID {variant_id}: {response_data['errors']}")
-                return False, response_data
-            elif response_data.get('data', {}).get('productSet', {}).get('userErrors'):
-                # Application-level user errors
-                user_errors = response_data['data']['productSet']['userErrors']
-                st.error(f"User errors for Variant ID {variant_id}: {user_errors}")
-                return False, user_errors
-            else:
-                st.success(f"Successfully updated Variant ID: {variant_id}")
-                return True, response_data
+            st.success(f"Successfully updated Variant ID: {variant_id} to price ${new_price:.2f}")
+            return True, response.json()
         else:
             st.error(f"Failed to update Variant ID {variant_id}. Status: {response.status_code}")
             try:
@@ -267,12 +191,9 @@ def main():
             success, response = update_shopify_price(
                 shop_url=shopify_shop,
                 access_token=shopify_access_token,
-                product_id=update['product_id'],
                 variant_id=update['variant_id'],
                 new_price=update['new_price'],
-                option1=update['option1'],
-                option2=update['option2'],
-                option3=update['option3']
+                api_version="2024-01"
             )
 
             if success:
@@ -310,14 +231,6 @@ def main():
 
         progress_bar.empty()
         status_text.empty()
-
-    # Optional: Simulate Update for Dry Run
-    st.header("Simulate Price Update")
-    if st.button("Simulate Price Update"):
-        for update in price_updates:
-            st.write(f"Would update SKU {update['sku']}: "
-                     f"${update['current_price']} → ${update['new_price']} "
-                     f"for product: {update['product_title']} - {update['variant_title']}")
 
 if __name__ == "__main__":
     main()
